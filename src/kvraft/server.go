@@ -4,6 +4,7 @@ import (
 	"../labgob"
 	"../labrpc"
 	"../raft"
+	"bytes"
 	"log"
 	"sync"
 	"sync/atomic"
@@ -49,6 +50,8 @@ type KVServer struct {
 	kvs              map[string]string
 	clientRequestIds map[int64]int64
 	indexChannels    map[int]*chan result
+
+	lastApplied int
 }
 
 type result struct {
@@ -83,9 +86,7 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 
 		reply.Value = res.value
 		reply.Err = res.err
-
 	}
-
 }
 
 func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
@@ -146,9 +147,15 @@ func (kv *KVServer) apply() {
 
 		applyMsg := <-kv.applyCh
 
-		op := applyMsg.Command.(Op)
-
 		//DPrintf("[%v] TOP LAYER APPLY_MSG %v", kv.rf.me, applyMsg)
+
+		if applyMsg.IsReadSnapshot {
+			kv.readSnapshot()
+			//DPrintf("[%v] kv %v", k)
+			continue
+		}
+
+		op := applyMsg.Command.(Op)
 
 		res := result{}
 		res.err = OK
@@ -181,11 +188,12 @@ func (kv *KVServer) apply() {
 				} else {
 					kv.kvs[op.Key] = op.Value
 				}
-
 			}
 		}
-
+		kv.lastApplied = applyMsg.CommandIndex
 		kv.mu.Unlock()
+
+		go kv.saveSnapshot()
 
 		_, isLeader := kv.rf.GetState()
 
@@ -214,6 +222,47 @@ func (kv *KVServer) checkRequestTimeout(index int) {
 		}
 		*ch <- res
 		//DPrintf("[%v], here", kv.rf.me)
+	}
+}
+
+func (kv *KVServer) readSnapshot() {
+	snapshot, index := kv.rf.ReadSnapshot()
+
+	if snapshot == nil || len(snapshot) < 1 {
+		return
+	}
+
+	r := bytes.NewBuffer(snapshot)
+	d := labgob.NewDecoder(r)
+
+	kvs := make(map[string]string)
+	clientRequestIds := make(map[int64]int64)
+
+	d.Decode(&kvs)
+	d.Decode(&clientRequestIds)
+
+	kv.mu.Lock()
+	kv.kvs = kvs
+	kv.clientRequestIds = clientRequestIds
+	kv.lastApplied = index
+	kv.mu.Unlock()
+}
+
+func (kv *KVServer) saveSnapshot() {
+	if kv.maxraftstate != -1 && kv.rf.GetRaftStateSize() > kv.maxraftstate {
+		kv.mu.Lock()
+		w := new(bytes.Buffer)
+		e := labgob.NewEncoder(w)
+
+		e.Encode(kv.kvs)
+		e.Encode(kv.clientRequestIds)
+
+		index := kv.lastApplied
+		snapshot := w.Bytes()
+		kv.mu.Unlock()
+
+		//DPrintf("[%v] log %v, raftStatGETeSize %v > maxRaftState %v", kv.me, kv.rf.log, kv.rf.GetRaftStateSize(), kv.maxraftstate)
+		kv.rf.SaveStateAndSnapshot(index, snapshot)
 	}
 }
 
@@ -249,6 +298,8 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv.kvs = make(map[string]string)
 	kv.clientRequestIds = make(map[int64]int64)
 	kv.indexChannels = make(map[int]*chan result)
+
+	kv.readSnapshot()
 
 	go kv.apply()
 	return kv

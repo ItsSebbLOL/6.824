@@ -612,7 +612,7 @@ func TestPersistPartitionUnreliableLinearizable3A(t *testing.T) {
 
 //
 // if one server falls behind, then rejoins, does it
-// recover by using the InstallSnapshot RPC?
+// recover by using the IsReadSnapshot RPC?
 // also checks that majority discards committed log entries
 // even if minority doesn't respond.
 //
@@ -624,7 +624,7 @@ func TestSnapshotRPC3B(t *testing.T) {
 
 	ck := cfg.makeClient(cfg.All())
 
-	cfg.begin("Test: InstallSnapshot RPC (3B)")
+	cfg.begin("Test: IsReadSnapshot RPC (3B)")
 
 	Put(cfg, ck, "a", "A")
 	check(cfg, t, ck, "a", "A")

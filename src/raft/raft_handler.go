@@ -98,6 +98,8 @@ func (rf *Raft) handleAppendEntriesResponse(args *AppendEntriesArgs, reply *Appe
 		updated = rf.updateCommitIndexWithoutLock(args)
 	} else {
 		//rf.nextIndex[server]--
+		//DPrintf("[%v] [%v].%v <= %v", rf.me, server, rf.nextIndex[server], rf.lastIncludedIndex)
+
 		if reply.XLen != 0 {
 			rf.nextIndex[server] = reply.XLen
 		} else {
@@ -113,8 +115,11 @@ func (rf *Raft) handleAppendEntriesResponse(args *AppendEntriesArgs, reply *Appe
 			rf.nextIndex[server] = 1
 		}
 
-		//todo snapshot
-
+		if rf.nextIndex[server] < rf.lastIncludedIndex {
+			//DPrintf("[%v] [%v].%v <= %v", rf.me, server, rf.nextIndex[server], rf.lastIncludedIndex)
+			go rf.installSnapshot(server)
+			return false
+		}
 		retry = true
 	}
 
@@ -123,4 +128,24 @@ func (rf *Raft) handleAppendEntriesResponse(args *AppendEntriesArgs, reply *Appe
 	}
 
 	return retry
+}
+
+func (rf *Raft) handleInstallSnapshotResponse(args *InstallSnapshotArgs, reply *InstallSnapshotReply, server int) {
+	rf.updateTermWithoutLock(reply.Term)
+
+	rf.mu.Lock()
+
+	if args.Term != rf.currentTerm {
+		rf.mu.Unlock()
+		return
+	}
+
+	rf.nextIndex[server] = args.LastIncludedIndex + 1
+	//DPrintf("[%v] [%v].%v", rf.me, server, rf.nextIndex[server])
+	rf.matchIndex[server] = args.LastIncludedIndex
+
+	rf.isInstallingSnapshot[server] = false
+
+	rf.mu.Unlock()
+	go rf.appendEntries(server, false)
 }

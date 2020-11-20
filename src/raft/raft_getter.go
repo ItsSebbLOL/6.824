@@ -31,8 +31,6 @@ func (rf *Raft) getLastEntryWithoutLock() *LogEntry {
 
 	if len(rf.log) == 0 {
 		entry = LogEntry{}
-		entry.Index = 0
-		entry.Term = 0
 	} else {
 		entry = rf.log[len(rf.log)-1]
 	}
@@ -49,6 +47,9 @@ func (rf *Raft) getEntryByIndexWithoutLock(index int) (*LogEntry, bool) {
 		return &LogEntry{}, false
 	} else {
 		index -= rf.log[0].Index
+		if index >= len(rf.log) {
+			DPrintf("[%v] log %v, index %v, rf.log[0] %v", rf.me, rf.log, index, rf.log[0].Index)
+		}
 		return &rf.log[index], true
 	}
 }
@@ -89,4 +90,8 @@ func (rf *Raft) getLastEntryByTermWithoutLock(term int) (*LogEntry, bool) {
 	}
 
 	return &entry, ok
+}
+
+func (rf *Raft) GetRaftStateSize() int {
+	return rf.persister.RaftStateSize()
 }
