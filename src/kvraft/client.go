@@ -48,11 +48,11 @@ func (ck *Clerk) Get(key string) string {
 	// You will have to modify this function.
 	var res string
 
-	args := GetArgs{
-		Key:       key,
-		RequestId: time.Now().UnixNano(),
-		ClientId:  ck.clientId,
-	}
+	args := GetArgs{}
+
+	args.Key = key
+	args.RequestId = time.Now().UnixNano()
+	args.ClientId = ck.clientId
 
 	for {
 		reply := GetReply{}
@@ -61,6 +61,7 @@ func (ck *Clerk) Get(key string) string {
 
 		if !ok || reply.Err == ErrWrongLeader {
 			ck.leader = (ck.leader + 1) % len(ck.servers)
+			time.Sleep(100 * time.Millisecond)
 			continue
 		}
 
@@ -89,13 +90,13 @@ func (ck *Clerk) Get(key string) string {
 func (ck *Clerk) PutAppend(key string, value string, op string) {
 	// You will have to modify this function.
 
-	args := PutAppendArgs{
-		Key:       key,
-		Value:     value,
-		Op:        op,
-		RequestId: time.Now().UnixNano(),
-		ClientId:  ck.clientId,
-	}
+	args := PutAppendArgs{}
+
+	args.Key = key
+	args.Value = value
+	args.Op = op
+	args.RequestId = time.Now().UnixNano()
+	args.ClientId = ck.clientId
 
 	for {
 		reply := PutAppendReply{}
@@ -104,6 +105,7 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 
 		if !ok || reply.Err == ErrWrongLeader {
 			ck.leader = (ck.leader + 1) % len(ck.servers)
+			time.Sleep(100 * time.Millisecond)
 			continue
 		}
 		break
