@@ -1,11 +1,30 @@
 package shardmaster
 
-
-import "../raft"
+import (
+	"../raft"
+	"log"
+	"sort"
+	"time"
+)
 import "../labrpc"
 import "sync"
 import "../labgob"
 
+const (
+	JOIN  = "JOIN"
+	LEAVE = "LEAVE"
+	MOVE  = "MOVE"
+	QUERY = "QUERY"
+)
+
+const Debug = 0
+
+func DPrintf(format string, a ...interface{}) (n int, err error) {
+	if Debug > 0 {
+		log.Printf(format, a...)
+	}
+	return
+}
 
 type ShardMaster struct {
 	mu      sync.Mutex
@@ -14,32 +33,148 @@ type ShardMaster struct {
 	applyCh chan raft.ApplyMsg
 
 	// Your data here.
-
-	configs []Config // indexed by config num
+	configs          []Config // indexed by config num
+	clientRequestIds map[int64]int64
+	indexChannels    map[int]*chan result
 }
 
+type result struct {
+	wrongLeader bool
+	err         Err
+	config      Config
+}
 
 type Op struct {
 	// Your data here.
-}
+	OpType string
 
+	Servers map[int][]string
+
+	GIDs []int
+
+	Shard int
+	GID   int
+
+	Num int
+
+	RequestId int64
+	ClientId  int64
+}
 
 func (sm *ShardMaster) Join(args *JoinArgs, reply *JoinReply) {
 	// Your code here.
+	op := Op{}
+
+	op.OpType = JOIN
+	op.Servers = args.Servers
+	op.RequestId = args.RequestId
+	op.ClientId = args.ClientId
+
+	index, _, isLeader := sm.rf.Start(op)
+
+	if !isLeader {
+		reply.WrongLeader = true
+		return
+	}
+
+	ch := make(chan result)
+	sm.addIndexChannel(index, &ch)
+
+	go sm.checkRequestTimeout(index)
+
+	res := <-ch
+
+	sm.removeIndexChanel(index)
+
+	reply.WrongLeader = res.wrongLeader
+	reply.Err = res.err
 }
 
 func (sm *ShardMaster) Leave(args *LeaveArgs, reply *LeaveReply) {
 	// Your code here.
+	op := Op{}
+	op.OpType = LEAVE
+	op.GIDs = args.GIDs
+	op.RequestId = args.RequestId
+	op.ClientId = args.ClientId
+
+	index, _, isLeader := sm.rf.Start(op)
+
+	if !isLeader {
+		reply.WrongLeader = true
+		return
+	}
+
+	ch := make(chan result)
+	sm.addIndexChannel(index, &ch)
+
+	go sm.checkRequestTimeout(index)
+
+	res := <-ch
+
+	sm.removeIndexChanel(index)
+
+	reply.WrongLeader = res.wrongLeader
+	reply.Err = res.err
 }
 
 func (sm *ShardMaster) Move(args *MoveArgs, reply *MoveReply) {
 	// Your code here.
+	op := Op{}
+	op.OpType = MOVE
+	op.Shard = args.Shard
+	op.GID = args.GID
+	op.RequestId = args.RequestId
+	op.ClientId = args.ClientId
+
+	index, _, isLeader := sm.rf.Start(op)
+
+	if !isLeader {
+		reply.WrongLeader = true
+		return
+	}
+
+	ch := make(chan result)
+	sm.addIndexChannel(index, &ch)
+
+	go sm.checkRequestTimeout(index)
+
+	res := <-ch
+
+	sm.removeIndexChanel(index)
+
+	reply.WrongLeader = res.wrongLeader
+	reply.Err = res.err
 }
 
 func (sm *ShardMaster) Query(args *QueryArgs, reply *QueryReply) {
 	// Your code here.
-}
+	op := Op{}
+	op.OpType = QUERY
+	op.Num = args.Num
+	op.RequestId = args.RequestId
+	op.ClientId = args.ClientId
 
+	index, _, isLeader := sm.rf.Start(op)
+
+	if !isLeader {
+		reply.WrongLeader = true
+		return
+	}
+
+	ch := make(chan result)
+	sm.addIndexChannel(index, &ch)
+
+	go sm.checkRequestTimeout(index)
+
+	res := <-ch
+
+	sm.removeIndexChanel(index)
+
+	reply.WrongLeader = res.wrongLeader
+	reply.Err = res.err
+	reply.Config = res.config
+}
 
 //
 // the tester calls Kill() when a ShardMaster instance won't
@@ -55,6 +190,211 @@ func (sm *ShardMaster) Kill() {
 // needed by shardkv tester
 func (sm *ShardMaster) Raft() *raft.Raft {
 	return sm.rf
+}
+
+func (sm *ShardMaster) apply() {
+	for {
+		applyMsg := <-sm.applyCh
+
+		op := applyMsg.Command.(Op)
+
+		var res result
+
+		if op.OpType == JOIN {
+			res = sm.join(&op)
+		} else if op.OpType == LEAVE {
+			res = sm.leave(&op)
+		} else if op.OpType == MOVE {
+			res = sm.move(&op)
+		} else if op.OpType == QUERY {
+			res = sm.query(&op)
+		}
+
+		_, isLeader := sm.rf.GetState()
+
+		if isLeader {
+			ch, ok := sm.getIndexChannel(applyMsg.CommandIndex)
+			sm.removeIndexChanel(applyMsg.CommandIndex)
+
+			if ok {
+				*ch <- res
+			} else {
+
+			}
+		}
+	}
+}
+
+func (sm *ShardMaster) checkRequestTimeout(index int) {
+	time.Sleep(750 * time.Millisecond)
+	ch, ok := sm.getIndexChannel(index)
+	sm.removeIndexChanel(index)
+
+	if ok {
+		res := result{}
+		res.wrongLeader = true
+
+		*ch <- res
+	}
+}
+
+func (sm *ShardMaster) join(op *Op) result {
+	sm.mu.Lock()
+
+	res := result{}
+	res.err = OK
+
+	requestId, ok := sm.clientRequestIds[op.ClientId]
+
+	if !ok || (ok && requestId < op.RequestId) {
+		sm.clientRequestIds[op.ClientId] = op.RequestId
+
+		newGroups := make(map[int][]string)
+		lastGroups := sm.configs[len(sm.configs)-1].Groups
+
+		for key, value := range lastGroups {
+			newGroups[key] = value
+		}
+
+		for key, value := range op.Servers {
+			newGroups[key] = value
+		}
+
+		shards := sm.balanceShards(newGroups)
+
+		config := Config{}
+		config.Num = len(sm.configs)
+		config.Shards = shards
+		config.Groups = newGroups
+
+		sm.configs = append(sm.configs, config)
+	}
+
+	sm.mu.Unlock()
+
+	return res
+}
+
+func (sm *ShardMaster) leave(op *Op) result {
+	sm.mu.Lock()
+
+	res := result{}
+	res.err = OK
+
+	requestId, ok := sm.clientRequestIds[op.ClientId]
+
+	if !ok || (ok && requestId < op.RequestId) {
+		sm.clientRequestIds[op.ClientId] = op.RequestId
+
+		newGroups := make(map[int][]string)
+		lastGroups := sm.configs[len(sm.configs)-1].Groups
+
+		for key, value := range lastGroups {
+			newGroups[key] = value
+		}
+
+		for _, gID := range op.GIDs {
+			delete(newGroups, gID)
+		}
+
+		shards := sm.balanceShards(newGroups)
+
+		config := Config{}
+		config.Num = len(sm.configs)
+		config.Shards = shards
+		config.Groups = newGroups
+
+		sm.configs = append(sm.configs, config)
+	}
+
+	sm.mu.Unlock()
+
+	return res
+}
+
+func (sm *ShardMaster) move(op *Op) result {
+	sm.mu.Lock()
+
+	res := result{}
+	res.err = OK
+
+	requestId, ok := sm.clientRequestIds[op.ClientId]
+
+	if !ok || (ok && requestId < op.RequestId) {
+		sm.clientRequestIds[op.ClientId] = op.RequestId
+
+		newGroups := make(map[int][]string)
+		lastGroups := sm.configs[len(sm.configs)-1].Groups
+
+		for key, value := range lastGroups {
+			newGroups[key] = value
+		}
+
+		shards := sm.configs[len(sm.configs)-1].Shards
+
+		shards[op.Shard] = op.GID
+
+		config := Config{}
+		config.Num = len(sm.configs)
+		config.Shards = shards
+		config.Groups = newGroups
+
+		sm.configs = append(sm.configs, config)
+	}
+
+	sm.mu.Unlock()
+
+	return res
+}
+
+func (sm *ShardMaster) query(op *Op) result {
+	sm.mu.Lock()
+
+	res := result{}
+	res.err = OK
+
+	if op.Num < 0 || op.Num >= len(sm.configs) {
+		res.config = sm.configs[len(sm.configs)-1]
+	} else {
+		res.config = sm.configs[op.Num]
+	}
+
+	DPrintf("%v", res.config)
+
+	sm.mu.Unlock()
+
+	return res
+}
+
+func (sm *ShardMaster) balanceShards(groups map[int][]string) [NShards]int {
+	var shards [NShards]int
+	var gIDs []int
+
+	for key := range groups {
+		gIDs = append(gIDs, key)
+	}
+
+	sort.Ints(gIDs)
+
+	if len(gIDs) == 0 {
+		return shards
+	}
+
+	times := NShards / len(gIDs)
+
+	for i := 0; i < len(gIDs); i++ {
+		for j := 0; j < times; j++ {
+			shards[i*times+j] = gIDs[i]
+		}
+
+		if i == len(gIDs)-1 && (i+1)*times < NShards {
+			for j := (i + 1) * times; j < NShards; j++ {
+				shards[j] = gIDs[i]
+			}
+		}
+	}
+
+	return shards
 }
 
 //
@@ -75,6 +415,10 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister)
 	sm.rf = raft.Make(servers, me, persister, sm.applyCh)
 
 	// Your code here.
+	sm.clientRequestIds = make(map[int64]int64)
+	sm.indexChannels = make(map[int]*chan result)
+
+	go sm.apply()
 
 	return sm
 }

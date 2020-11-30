@@ -61,61 +61,61 @@ type result struct {
 
 func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 	// Your code here.
-	op := Op{
-		OpType:    GET,
-		Key:       args.Key,
-		Value:     "",
-		RequestId: args.RequestId,
-		ClientId:  args.ClientId,
-	}
+	op := Op{}
+
+	op.OpType = GET
+	op.Key = args.Key
+	op.RequestId = args.RequestId
+	op.ClientId = args.ClientId
 
 	index, _, isLeader := kv.rf.Start(op)
 
 	if !isLeader {
 		reply.Err = ErrWrongLeader
 		return
-	} else {
-		ch := make(chan result)
-		kv.addIndexChannel(index, &ch)
-
-		go kv.checkRequestTimeout(index)
-
-		res := <-ch
-
-		kv.removeIndexChannel(index)
-
-		reply.Value = res.value
-		reply.Err = res.err
 	}
+
+	ch := make(chan result)
+	kv.addIndexChannel(index, &ch)
+
+	go kv.checkRequestTimeout(index)
+
+	res := <-ch
+
+	kv.removeIndexChannel(index)
+
+	reply.Value = res.value
+	reply.Err = res.err
+
 }
 
 func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	// Your code here.
-	op := Op{
-		OpType:    args.Op,
-		Key:       args.Key,
-		Value:     args.Value,
-		RequestId: args.RequestId,
-		ClientId:  args.ClientId,
-	}
+	op := Op{}
+
+	op.OpType = args.Op
+	op.Key = args.Key
+	op.Value = args.Value
+	op.RequestId = args.RequestId
+	op.ClientId = args.ClientId
 
 	index, _, isLeader := kv.rf.Start(op)
 
 	if !isLeader {
 		reply.Err = ErrWrongLeader
 		return
-	} else {
-		ch := make(chan result)
-		kv.addIndexChannel(index, &ch)
-
-		go kv.checkRequestTimeout(index)
-
-		res := <-ch
-
-		kv.removeIndexChannel(index)
-
-		reply.Err = res.err
 	}
+
+	ch := make(chan result)
+	kv.addIndexChannel(index, &ch)
+
+	go kv.checkRequestTimeout(index)
+
+	res := <-ch
+
+	kv.removeIndexChannel(index)
+
+	reply.Err = res.err
 }
 
 //
@@ -216,10 +216,9 @@ func (kv *KVServer) checkRequestTimeout(index int) {
 	kv.removeIndexChannel(index)
 
 	if ok {
-		res := result{
-			value: "",
-			err:   ErrWrongLeader,
-		}
+		res := result{}
+		res.err = ErrWrongLeader
+
 		*ch <- res
 		//DPrintf("[%v], here", kv.rf.me)
 	}

@@ -38,10 +38,10 @@ func (ck *Clerk) Query(num int) Config {
 	args := &QueryArgs{}
 	// Your code here.
 	args.Num = num
-	args.requestId = time.Now().UnixNano()
-	args.clientId = ck.clientId
+	args.RequestId = time.Now().UnixNano()
+	args.ClientId = ck.clientId
 
-	var conf Config
+	var config Config
 
 	for {
 		// try each known server.
@@ -57,17 +57,17 @@ func (ck *Clerk) Query(num int) Config {
 		reply := &QueryReply{}
 
 		ok := ck.servers[ck.leaderId].Call("ShardMaster.Query", args, reply)
-		if !ok || reply.WrongLeader || reply.Err == ErrWrongLeader {
+		if !ok || reply.WrongLeader {
 			ck.leaderId = (ck.leaderId + 1) % len(ck.servers)
 			time.Sleep(100 * time.Millisecond)
 			continue
 		}
 
 		if reply.Err == OK {
-			conf = reply.Config
+			config = reply.Config
 		}
 
-		return conf
+		return config
 	}
 }
 
@@ -75,8 +75,8 @@ func (ck *Clerk) Join(servers map[int][]string) {
 	args := &JoinArgs{}
 	// Your code here.
 	args.Servers = servers
-	args.requestId = time.Now().UnixNano()
-	args.clientId = ck.clientId
+	args.RequestId = time.Now().UnixNano()
+	args.ClientId = ck.clientId
 
 	for {
 		// try each known server.
@@ -92,7 +92,7 @@ func (ck *Clerk) Join(servers map[int][]string) {
 		reply := &JoinReply{}
 
 		ok := ck.servers[ck.leaderId].Call("ShardMaster.Join", args, reply)
-		if !ok || reply.WrongLeader || reply.Err == ErrWrongLeader {
+		if !ok || reply.WrongLeader {
 			ck.leaderId = (ck.leaderId + 1) % len(ck.servers)
 			time.Sleep(100 * time.Millisecond)
 			continue
@@ -106,8 +106,8 @@ func (ck *Clerk) Leave(gids []int) {
 	args := &LeaveArgs{}
 	// Your code here.
 	args.GIDs = gids
-	args.requestId = time.Now().UnixNano()
-	args.clientId = ck.clientId
+	args.RequestId = time.Now().UnixNano()
+	args.ClientId = ck.clientId
 
 	for {
 		// try each known server.
@@ -123,7 +123,7 @@ func (ck *Clerk) Leave(gids []int) {
 		reply := &LeaveReply{}
 
 		ok := ck.servers[ck.leaderId].Call("ShardMaster.Leave", args, reply)
-		if !ok || reply.WrongLeader || reply.Err == ErrWrongLeader {
+		if !ok || reply.WrongLeader {
 			ck.leaderId = (ck.leaderId + 1) % len(ck.servers)
 			time.Sleep(100 * time.Millisecond)
 			continue
@@ -138,8 +138,8 @@ func (ck *Clerk) Move(shard int, gid int) {
 	// Your code here.
 	args.Shard = shard
 	args.GID = gid
-	args.requestId = time.Now().UnixNano()
-	args.clientId = ck.clientId
+	args.RequestId = time.Now().UnixNano()
+	args.ClientId = ck.clientId
 
 	for {
 		// try each known server.
@@ -155,7 +155,7 @@ func (ck *Clerk) Move(shard int, gid int) {
 		reply := &MoveReply{}
 
 		ok := ck.servers[ck.leaderId].Call("ShardMaster.Move", args, reply)
-		if !ok || reply.WrongLeader || reply.Err == ErrWrongLeader {
+		if !ok || reply.WrongLeader {
 			ck.leaderId = (ck.leaderId + 1) % len(ck.servers)
 			time.Sleep(100 * time.Millisecond)
 			continue
