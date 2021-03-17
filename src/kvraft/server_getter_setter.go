@@ -1,6 +1,6 @@
 package kvraft
 
-func (kv *KVServer) addIndexChannel(index int, ch *chan result) {
+func (kv *KVServer) addIndexChannel(index int, ch chan result) {
 	kv.mu.Lock()
 	_, ok := kv.indexChannels[index]
 
@@ -12,8 +12,8 @@ func (kv *KVServer) addIndexChannel(index int, ch *chan result) {
 	kv.mu.Unlock()
 }
 
-func (kv *KVServer) getIndexChannel(index int) (*chan result, bool) {
-	var ch *chan result
+func (kv *KVServer) getIndexChannel(index int) (chan result, bool) {
+	var ch chan result
 	var ok bool
 
 	kv.mu.Lock()

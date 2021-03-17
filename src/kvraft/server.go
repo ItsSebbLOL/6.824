@@ -30,9 +30,11 @@ type Op struct {
 	// Your definitions here.
 	// Field names must start with capital letters,
 	// otherwise RPC will break.
-	OpType    string
-	Key       string
-	Value     string
+	OpType string
+
+	Key   string
+	Value string
+
 	RequestId int64
 	ClientId  int64
 }
@@ -49,9 +51,9 @@ type KVServer struct {
 	// Your definitions here.
 	kvs              map[string]string
 	clientRequestIds map[int64]int64
-	indexChannels    map[int]*chan result
+	indexChannels    map[int]chan result
 
-	lastApplied int
+	lastAppliedIndex int
 }
 
 type result struct {
@@ -65,8 +67,6 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 
 	op.OpType = GET
 	op.Key = args.Key
-	op.RequestId = args.RequestId
-	op.ClientId = args.ClientId
 
 	index, _, isLeader := kv.rf.Start(op)
 
@@ -76,7 +76,7 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 	}
 
 	ch := make(chan result)
-	kv.addIndexChannel(index, &ch)
+	kv.addIndexChannel(index, ch)
 
 	go kv.checkRequestTimeout(index)
 
@@ -86,7 +86,6 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 
 	reply.Value = res.value
 	reply.Err = res.err
-
 }
 
 func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
@@ -107,7 +106,7 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	}
 
 	ch := make(chan result)
-	kv.addIndexChannel(index, &ch)
+	kv.addIndexChannel(index, ch)
 
 	go kv.checkRequestTimeout(index)
 
@@ -190,7 +189,7 @@ func (kv *KVServer) apply() {
 				}
 			}
 		}
-		kv.lastApplied = applyMsg.CommandIndex
+		kv.lastAppliedIndex = applyMsg.CommandIndex
 		kv.mu.Unlock()
 
 		go kv.saveSnapshot()
@@ -202,7 +201,7 @@ func (kv *KVServer) apply() {
 			kv.removeIndexChannel(applyMsg.CommandIndex)
 
 			if ok {
-				*ch <- res
+				ch <- res
 			} else {
 				//DPrintf("[%v], Here", kv.rf.me)
 			}
@@ -211,7 +210,7 @@ func (kv *KVServer) apply() {
 }
 
 func (kv *KVServer) checkRequestTimeout(index int) {
-	time.Sleep(750 * time.Millisecond)
+	time.Sleep(700 * time.Millisecond)
 	ch, ok := kv.getIndexChannel(index)
 	kv.removeIndexChannel(index)
 
@@ -219,7 +218,7 @@ func (kv *KVServer) checkRequestTimeout(index int) {
 		res := result{}
 		res.err = ErrWrongLeader
 
-		*ch <- res
+		ch <- res
 		//DPrintf("[%v], here", kv.rf.me)
 	}
 }
@@ -243,20 +242,20 @@ func (kv *KVServer) readSnapshot() {
 	kv.mu.Lock()
 	kv.kvs = kvs
 	kv.clientRequestIds = clientRequestIds
-	kv.lastApplied = index
+	kv.lastAppliedIndex = index
 	kv.mu.Unlock()
 }
 
 func (kv *KVServer) saveSnapshot() {
 	if kv.maxraftstate != -1 && kv.rf.GetRaftStateSize() > kv.maxraftstate {
-		kv.mu.Lock()
 		w := new(bytes.Buffer)
 		e := labgob.NewEncoder(w)
 
+		kv.mu.Lock()
 		e.Encode(kv.kvs)
 		e.Encode(kv.clientRequestIds)
 
-		index := kv.lastApplied
+		index := kv.lastAppliedIndex
 		snapshot := w.Bytes()
 		kv.mu.Unlock()
 
@@ -296,7 +295,7 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	// You may need initialization code here.
 	kv.kvs = make(map[string]string)
 	kv.clientRequestIds = make(map[int64]int64)
-	kv.indexChannels = make(map[int]*chan result)
+	kv.indexChannels = make(map[int]chan result)
 
 	kv.readSnapshot()
 

@@ -1,5 +1,7 @@
 package shardmaster
 
+import "log"
+
 //
 // Master shard server: assigns shards to replication groups.
 //
@@ -16,6 +18,15 @@ package shardmaster
 //
 // You will need to add fields to the RPC argument structs.
 //
+
+const Debug = 1
+
+func DPrintf(format string, a ...interface{}) (n int, err error) {
+	if Debug > 0 {
+		log.Printf(format, a...)
+	}
+	return
+}
 
 // The number of shards.
 const NShards = 10
@@ -69,9 +80,7 @@ type MoveReply struct {
 }
 
 type QueryArgs struct {
-	Num       int // desired config number
-	RequestId int64
-	ClientId  int64
+	Num int // desired config number
 }
 
 type QueryReply struct {

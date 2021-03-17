@@ -2,7 +2,6 @@ package shardmaster
 
 import (
 	"../raft"
-	"log"
 	"sort"
 	"time"
 )
@@ -16,15 +15,6 @@ const (
 	MOVE  = "MOVE"
 	QUERY = "QUERY"
 )
-
-const Debug = 0
-
-func DPrintf(format string, a ...interface{}) (n int, err error) {
-	if Debug > 0 {
-		log.Printf(format, a...)
-	}
-	return
-}
 
 type ShardMaster struct {
 	mu      sync.Mutex
@@ -84,7 +74,7 @@ func (sm *ShardMaster) Join(args *JoinArgs, reply *JoinReply) {
 
 	res := <-ch
 
-	sm.removeIndexChanel(index)
+	sm.removeIndexChannel(index)
 
 	reply.WrongLeader = res.wrongLeader
 	reply.Err = res.err
@@ -112,7 +102,7 @@ func (sm *ShardMaster) Leave(args *LeaveArgs, reply *LeaveReply) {
 
 	res := <-ch
 
-	sm.removeIndexChanel(index)
+	sm.removeIndexChannel(index)
 
 	reply.WrongLeader = res.wrongLeader
 	reply.Err = res.err
@@ -141,7 +131,7 @@ func (sm *ShardMaster) Move(args *MoveArgs, reply *MoveReply) {
 
 	res := <-ch
 
-	sm.removeIndexChanel(index)
+	sm.removeIndexChannel(index)
 
 	reply.WrongLeader = res.wrongLeader
 	reply.Err = res.err
@@ -152,8 +142,6 @@ func (sm *ShardMaster) Query(args *QueryArgs, reply *QueryReply) {
 	op := Op{}
 	op.OpType = QUERY
 	op.Num = args.Num
-	op.RequestId = args.RequestId
-	op.ClientId = args.ClientId
 
 	index, _, isLeader := sm.rf.Start(op)
 
@@ -169,7 +157,7 @@ func (sm *ShardMaster) Query(args *QueryArgs, reply *QueryReply) {
 
 	res := <-ch
 
-	sm.removeIndexChanel(index)
+	sm.removeIndexChannel(index)
 
 	reply.WrongLeader = res.wrongLeader
 	reply.Err = res.err
@@ -202,8 +190,10 @@ func (sm *ShardMaster) apply() {
 
 		if op.OpType == JOIN {
 			res = sm.join(&op)
+			//DPrintf("%v", op)
 		} else if op.OpType == LEAVE {
 			res = sm.leave(&op)
+			//DPrintf("%v", op)
 		} else if op.OpType == MOVE {
 			res = sm.move(&op)
 		} else if op.OpType == QUERY {
@@ -214,9 +204,12 @@ func (sm *ShardMaster) apply() {
 
 		if isLeader {
 			ch, ok := sm.getIndexChannel(applyMsg.CommandIndex)
-			sm.removeIndexChanel(applyMsg.CommandIndex)
+			sm.removeIndexChannel(applyMsg.CommandIndex)
 
 			if ok {
+				//if op.OpType != QUERY && op.OpType != MOVE {
+				//	DPrintf("%v", res)
+				//}
 				*ch <- res
 			} else {
 
@@ -226,9 +219,9 @@ func (sm *ShardMaster) apply() {
 }
 
 func (sm *ShardMaster) checkRequestTimeout(index int) {
-	time.Sleep(750 * time.Millisecond)
+	time.Sleep(700 * time.Millisecond)
 	ch, ok := sm.getIndexChannel(index)
-	sm.removeIndexChanel(index)
+	sm.removeIndexChannel(index)
 
 	if ok {
 		res := result{}
@@ -293,8 +286,8 @@ func (sm *ShardMaster) leave(op *Op) result {
 			newGroups[key] = value
 		}
 
-		for _, gID := range op.GIDs {
-			delete(newGroups, gID)
+		for _, gid := range op.GIDs {
+			delete(newGroups, gid)
 		}
 
 		shards := sm.balanceShards(newGroups)
@@ -359,7 +352,7 @@ func (sm *ShardMaster) query(op *Op) result {
 		res.config = sm.configs[op.Num]
 	}
 
-	DPrintf("%v", res.config)
+	//DPrintf("%v", res.config)
 
 	sm.mu.Unlock()
 
@@ -368,28 +361,28 @@ func (sm *ShardMaster) query(op *Op) result {
 
 func (sm *ShardMaster) balanceShards(groups map[int][]string) [NShards]int {
 	var shards [NShards]int
-	var gIDs []int
+	var gids []int
 
 	for key := range groups {
-		gIDs = append(gIDs, key)
+		gids = append(gids, key)
 	}
 
-	sort.Ints(gIDs)
+	sort.Ints(gids)
 
-	if len(gIDs) == 0 {
+	if len(gids) == 0 {
 		return shards
 	}
 
-	times := NShards / len(gIDs)
+	times := NShards / len(gids)
 
-	for i := 0; i < len(gIDs); i++ {
+	for i := 0; i < len(gids); i++ {
 		for j := 0; j < times; j++ {
-			shards[i*times+j] = gIDs[i]
+			shards[i*times+j] = gids[i]
 		}
 
-		if i == len(gIDs)-1 && (i+1)*times < NShards {
+		if i == len(gids)-1 && (i+1)*times < NShards {
 			for j := (i + 1) * times; j < NShards; j++ {
-				shards[j] = gIDs[i]
+				shards[j] = gids[i]
 			}
 		}
 	}

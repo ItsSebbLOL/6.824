@@ -1,7 +1,7 @@
 package shardkv
 
 //
-// Sharded key/value server.
+// Sharded Key/Value server.
 // Lots of replica groups, each running op-at-a-time paxos.
 // Shardmaster decides which group serves each shard.
 // Shardmaster may change shard assignment from time to time.
@@ -27,6 +27,10 @@ type PutAppendArgs struct {
 	// You'll have to add definitions here.
 	// Field names must start with capital letters,
 	// otherwise RPC will break.
+	RequestId     int64
+	LastRequestId int64
+
+	ConfigNum int
 }
 
 type PutAppendReply struct {
@@ -36,9 +40,21 @@ type PutAppendReply struct {
 type GetArgs struct {
 	Key string
 	// You'll have to add definitions here.
+	ConfigNum int
 }
 
 type GetReply struct {
 	Err   Err
 	Value string
+}
+
+type MovingShardsArgs struct {
+	Shards    []int
+	ConfigNum int
+}
+
+type MovingShardsReply struct {
+	Err           Err
+	Kvs           map[string]string
+	RequestIdKeys map[int64]string
 }

@@ -42,6 +42,7 @@ func TestStaticShards(t *testing.T) {
 		va[i] = randstring(20)
 		ck.Put(ka[i], va[i])
 	}
+
 	for i := 0; i < n; i++ {
 		check(t, ck, ka[i], va[i])
 	}
@@ -846,7 +847,7 @@ func TestChallenge2Unaffected(t *testing.T) {
 	}
 
 	// Wait for migration to new config to complete, and for clients to
-	// start using this updated config. Gets to any key k such that
+	// start using this updated config. Gets to any Key k such that
 	// owned[shard(k)] == true should now be served by group 101.
 	<-time.After(1 * time.Second)
 	for i := 0; i < n; i++ {

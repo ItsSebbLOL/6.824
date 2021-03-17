@@ -51,8 +51,6 @@ func (ck *Clerk) Get(key string) string {
 	args := GetArgs{}
 
 	args.Key = key
-	args.RequestId = time.Now().UnixNano()
-	args.ClientId = ck.clientId
 
 	for {
 		reply := GetReply{}

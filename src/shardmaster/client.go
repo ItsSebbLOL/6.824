@@ -12,7 +12,6 @@ import "math/big"
 type Clerk struct {
 	servers []*labrpc.ClientEnd
 	// Your data here.
-
 	leaderId int
 	clientId int64
 }
@@ -28,7 +27,6 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 	ck := new(Clerk)
 	ck.servers = servers
 	// Your code here.
-
 	ck.leaderId = 0
 	ck.clientId = time.Now().UnixNano()
 	return ck
@@ -38,8 +36,6 @@ func (ck *Clerk) Query(num int) Config {
 	args := &QueryArgs{}
 	// Your code here.
 	args.Num = num
-	args.RequestId = time.Now().UnixNano()
-	args.ClientId = ck.clientId
 
 	var config Config
 

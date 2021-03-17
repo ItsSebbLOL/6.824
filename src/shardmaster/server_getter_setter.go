@@ -23,7 +23,7 @@ func (sm *ShardMaster) getIndexChannel(index int) (*chan result, bool) {
 	return ch, ok
 }
 
-func (sm *ShardMaster) removeIndexChanel(index int) {
+func (sm *ShardMaster) removeIndexChannel(index int) {
 	sm.mu.Lock()
 	delete(sm.indexChannels, index)
 	sm.mu.Unlock()
