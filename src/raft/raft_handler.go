@@ -5,6 +5,7 @@ import (
 )
 
 func (rf *Raft) handleElectionTimeout() {
+	// becomes Candidate when Follower receives RPCs
 	rf.becomesCandidate()
 
 	term := rf.getCurrentTerm()
@@ -12,6 +13,7 @@ func (rf *Raft) handleElectionTimeout() {
 	receivedNum := 1
 	cond := sync.NewCond(&rf.mu)
 
+	// starts a new election timer after the last one finished
 	go rf.electionTimer()
 
 	for i := 0; i < len(rf.peers); i++ {
@@ -19,6 +21,7 @@ func (rf *Raft) handleElectionTimeout() {
 			continue
 		}
 
+		// sending RPCs in parallel to improve performance
 		go func(j int) {
 			args := rf.buildRequestVoteArgs()
 			reply := &RequestVoteReply{}
@@ -44,6 +47,8 @@ func (rf *Raft) handleElectionTimeout() {
 	}
 
 	rf.mu.Lock()
+	// program continues only when received RPC number is greater or equal than the total number
+	// or the current Raft instance is granted votes by more than half of all the raft instances.
 	for receivedNum < len(rf.peers) && grantedNum < len(rf.peers)/2+1 {
 		cond.Wait()
 	}

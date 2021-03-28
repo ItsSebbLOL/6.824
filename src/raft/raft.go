@@ -240,8 +240,10 @@ type InstallSnapshotReply struct {
 //
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
+	// update current term using term in args
 	rf.updateTermWithoutLock(args.Term)
 
+	// term not matched, return immediately
 	if args.Term != rf.getCurrentTerm() {
 		//DPrintf("[%v] return %v", rf.me, args)
 		reply.Term = rf.getCurrentTerm()
@@ -250,6 +252,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 	rf.mu.Lock()
 
+	// check if current raft instance has voted
 	if rf.voteFor == -1 || rf.voteFor == args.CandidateId {
 		entry := rf.getLastEntryWithoutLock()
 		//for i := 0; i < len(rf.log); i++ {
@@ -257,6 +260,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		//}
 		//
 		//DPrintf("[%v] receive voteReq from candidate %v :{args.LastLogTerm %v, entry.Term %v, args.LastLogIndex %v, entry.Index %v}", rf.me, args.CandidateId, args.LastLogTerm, entry.Term, args.LastLogIndex, entry.Index)
+		// check if current log entry is up to date
 		if args.LastLogTerm > entry.Term || (args.LastLogTerm == entry.Term && args.LastLogIndex >= entry.Index) {
 			rf.lastRpcReceivedTime = time.Now()
 			reply.VoteGranted = true
@@ -273,6 +277,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 }
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
+	// update current term using term in args
 	rf.updateTermWithoutLock(args.Term)
 
 	//if len(args.Entries) != 0 {
@@ -281,6 +286,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	var updated bool
 
+	// term not matched, return immediately
 	if args.Term != rf.getCurrentTerm() {
 		//DPrintf("[%v] return %v", rf.me, args)
 		reply.Term = rf.getCurrentTerm()
@@ -299,11 +305,13 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	entry, ok := rf.getEntryByIndexWithoutLock(args.PrevLogIndex)
 
+	// check if Follower has required log entry
 	if args.PrevLogIndex == 0 || (ok && entry.Term == args.PrevLogTerm) {
 		reply.Success = true
 		isConflicted := false
 		conflictIndex := 0
 
+		// traverse log entries in args to get ready to add to current raft instance's log
 		for i := 0; i < len(args.Entries); i++ {
 			entry := args.Entries[i]
 			rfEntry, ok := rf.getEntryByIndexWithoutLock(entry.Index)
@@ -314,10 +322,12 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 					break
 				}
 			} else {
+				// log entry from args not found in current raft instance's log, add this log entry immediately
 				rf.log = append(rf.log, entry)
 			}
 		}
 
+		// overwriting conflicted log entries
 		if isConflicted {
 			rf.log = rf.log[:conflictIndex]
 			beginIndex := rf.getLastEntryWithoutLock().Index + 1
@@ -335,6 +345,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		//	DPrintf("[%v] receiving args %v", rf.me, args)
 		//}
 
+		// updates current commit index
 		if args.LeaderCommit > rf.commitIndex {
 			updated = true
 			if rf.getLastEntryWithoutLock().Index < args.LeaderCommit {
@@ -345,6 +356,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		}
 
 	} else {
+		// try to rematch with Leader
 		reply.Success = false
 		if !ok {
 			reply.XLen = len(rf.log)
@@ -362,6 +374,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	//	}
 	//}
 
+	// awakes apply daemon routine
 	if updated {
 		rf.applyCond.Signal()
 	}
@@ -694,6 +707,7 @@ func (rf *Raft) apply() {
 
 		rf.mu.Lock()
 
+		// program is blocked when commit index is less or equal than last applied index
 		for rf.commitIndex <= rf.lastApplied {
 			rf.applyCond.Wait()
 			//DPrintf("[%v] wakeup commitIndex %v, lastApplied %v", rf.me, rf.commitIndex, rf.lastApplied)
@@ -716,6 +730,7 @@ func (rf *Raft) apply() {
 			continue
 		}
 
+		// apply log entries from last applied index plus one to commit index
 		for i := rf.lastApplied + 1; i <= rf.commitIndex; i++ {
 			entry, ok := rf.getEntryByIndexWithoutLock(i)
 
@@ -730,6 +745,7 @@ func (rf *Raft) apply() {
 			applyMsg.IsReadSnapshot = false
 
 			rf.mu.Unlock()
+			// apply msg through apply channel
 			rf.applyCh <- applyMsg
 			DPrintf("[%v] APPLY %v, lastApplied %v", rf.me, applyMsg, i)
 
@@ -904,7 +920,9 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.lastIncludedIndex = 0
 	rf.lastIncludedTerm = 0
 
+	// starts election timer
 	go rf.electionTimer()
+	// starts apply daemon routine
 	go rf.apply()
 
 	// initialize from state persisted before a crash
