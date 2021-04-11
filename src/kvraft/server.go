@@ -68,18 +68,23 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 	op.OpType = GET
 	op.Key = args.Key
 
+	// call rf.Start to add log
 	index, _, isLeader := kv.rf.Start(op)
 
+	// not leader, return wrong leader err
 	if !isLeader {
 		reply.Err = ErrWrongLeader
 		return
 	}
 
+	// create a new chan to transmit res
 	ch := make(chan result)
 	kv.addIndexChannel(index, ch)
 
+	// if timeout, add wrong res to chan
 	go kv.checkRequestTimeout(index)
 
+	// wait for res
 	res := <-ch
 
 	kv.removeIndexChannel(index)
@@ -144,6 +149,7 @@ func (kv *KVServer) apply() {
 			break
 		}
 
+		// command from Raft layer
 		applyMsg := <-kv.applyCh
 
 		//DPrintf("[%v] TOP LAYER APPLY_MSG %v", kv.rf.me, applyMsg)
@@ -161,6 +167,7 @@ func (kv *KVServer) apply() {
 
 		kv.mu.Lock()
 
+		// execute command
 		if op.OpType == GET {
 			value, ok := kv.kvs[op.Key]
 			if ok {
@@ -171,6 +178,7 @@ func (kv *KVServer) apply() {
 		} else if op.OpType == PUT {
 			requestId, ok := kv.clientRequestIds[op.ClientId]
 
+			// if in order
 			if !ok || (ok && requestId < op.RequestId) {
 				kv.clientRequestIds[op.ClientId] = op.RequestId
 				kv.kvs[op.Key] = op.Value
@@ -196,6 +204,7 @@ func (kv *KVServer) apply() {
 
 		_, isLeader := kv.rf.GetState()
 
+		// if is leader, send res
 		if isLeader {
 			ch, ok := kv.getIndexChannel(applyMsg.CommandIndex)
 			kv.removeIndexChannel(applyMsg.CommandIndex)

@@ -360,6 +360,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		reply.Success = false
 		if !ok {
 			reply.XLen = len(rf.log)
+			// for snapshot
 			reply.XLen += rf.lastIncludedIndex
 		} else {
 			reply.XTerm = entry.Term
@@ -483,11 +484,13 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	// Your code here (2B).
 	rf.mu.Lock()
 
+	// only leader can apply me
 	if rf.status == LEADER {
 		isLeader = true
 
 		entry := &LogEntry{}
 
+		// create a new log entry then append to log
 		entry.Index = rf.getLastEntryWithoutLock().Index + 1
 
 		entry.Term = rf.currentTerm
@@ -506,6 +509,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 
 		DPrintf("[%v] START %v, index %v", rf.me, command, index)
 
+		// send appendEntries RPC to all peers
 		for i := 0; i < len(rf.peers); i++ {
 			if i == rf.me {
 				continue
@@ -713,6 +717,7 @@ func (rf *Raft) apply() {
 			//DPrintf("[%v] wakeup commitIndex %v, lastApplied %v", rf.me, rf.commitIndex, rf.lastApplied)
 		}
 
+		// tell the layer(kv layer) above to read snapshot
 		if rf.lastApplied < rf.lastIncludedIndex {
 			applyMsg := ApplyMsg{}
 			applyMsg.CommandValid = true

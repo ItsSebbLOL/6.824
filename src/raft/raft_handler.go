@@ -92,6 +92,7 @@ func (rf *Raft) handleAppendEntriesResponse(args *AppendEntriesArgs, reply *Appe
 		return false
 	}
 
+	// if succeeded, update nextIndex and matchIndex
 	if reply.Success {
 		rf.nextIndex[server] = len(args.Entries) + args.PrevLogIndex + 1
 		rf.matchIndex[server] = rf.nextIndex[server] - 1
@@ -105,9 +106,12 @@ func (rf *Raft) handleAppendEntriesResponse(args *AppendEntriesArgs, reply *Appe
 		//rf.nextIndex[server]--
 		//DPrintf("[%v] [%v].%v <= %v", rf.me, server, rf.nextIndex[server], rf.lastIncludedIndex)
 
+		// if not succeed, update nextIndex and matchIndex using fields in reply
+		// prevLog not exist on follower
 		if reply.XLen != 0 {
 			rf.nextIndex[server] = reply.XLen
 		} else {
+			// prevLog exists on follower
 			entry, ok := rf.getLastEntryByTermWithoutLock(reply.XTerm)
 			if ok {
 				rf.nextIndex[server] = entry.Index
@@ -120,6 +124,7 @@ func (rf *Raft) handleAppendEntriesResponse(args *AppendEntriesArgs, reply *Appe
 			rf.nextIndex[server] = 1
 		}
 
+		// current raft instance dont have required log entry, install snapshots on the follower instead.
 		if rf.nextIndex[server] < rf.lastIncludedIndex {
 			//DPrintf("[%v] [%v].%v <= %v", rf.me, server, rf.nextIndex[server], rf.lastIncludedIndex)
 			go rf.installSnapshot(server)
