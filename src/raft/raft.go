@@ -398,6 +398,7 @@ func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapsho
 	_, ok := rf.getEntryByIndexWithoutLock(args.LastIncludedIndex)
 
 	if ok {
+		// overwriting old log
 		rf.deleteLogsBeforeIndexWithoutLock(args.LastIncludedIndex)
 		rf.saveStateAndSnapshotWithoutLock(args)
 		rf.mu.Unlock()
