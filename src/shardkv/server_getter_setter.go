@@ -53,12 +53,3 @@ func (kv *ShardKV) isMoving() bool {
 	kv.mu.Unlock()
 	return isMoving
 }
-
-func (kv *ShardKV) getWaitingShardsLength() int {
-	var length int
-
-	kv.mu.Lock()
-	length = len(kv.movingGroupShards)
-	kv.mu.Unlock()
-	return length
-}

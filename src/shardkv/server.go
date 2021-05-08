@@ -69,8 +69,8 @@ type ShardKV struct {
 
 	prevConfigs []shardmaster.Config
 
-	movingGroupShards    map[int][]int
-	deletingConfigNumKvs map[int]map[int]deletingData
+	movingGroupShards   map[int][]int
+	deletedConfigNumKvs map[int]map[int]deletingData
 
 	cond4movingGroupShards *sync.Cond
 }
@@ -171,15 +171,15 @@ func (kv *ShardKV) MoveShards(args *MovingShardsArgs, reply *MovingShardsReply) 
 
 	kv.mu.Lock()
 
-	deletingDataset := kv.deletingConfigNumKvs[args.ConfigNum]
+	deletedDataset := kv.deletedConfigNumKvs[args.ConfigNum]
 
 	for _, shard := range args.Shards {
-		deletingData := deletingDataset[shard]
-		for key, value := range deletingData.Kvs {
+		deletedData := deletedDataset[shard]
+		for key, value := range deletedData.Kvs {
 			reply.Kvs[key] = value
 		}
 
-		for key, value := range deletingData.RequestIdKeys {
+		for key, value := range deletedData.RequestIdKeys {
 			reply.RequestIdKeys[key] = value
 		}
 	}
@@ -288,8 +288,10 @@ func (kv *ShardKV) checkConfig() {
 
 		go func() {
 			nextConfigNum := kv.getConfig().Num + 1
+			// query if a new config exists
 			nextConfig := kv.mck.Query(nextConfigNum)
 
+			// if exists, start a new NEW_CONFIG op
 			if nextConfigNum == nextConfig.Num {
 				op := Op{}
 				op.OpType = NEW_CONFIG
@@ -315,62 +317,66 @@ func (kv *ShardKV) processConfig(op *Op, index int) {
 
 	prevConfig, prevShards := kv.config, kv.config.Shards
 
+	// appending previous config
 	kv.prevConfigs = append(kv.prevConfigs, prevConfig)
 
+	// updating config
 	kv.config = op.Config
 	newShards := op.Config.Shards
 
+	// starts to move shards between replicate groups
+	// gid -> shards
 	kv.movingGroupShards = make(map[int][]int)
-	deletingShards := make([]int, 0)
+	deletedShards := make([]int, 0)
 
 	for i := 0; i < shardmaster.NShards; i++ {
 		if newShards[i] == kv.gid && prevShards[i] != kv.gid && prevShards[i] != 0 {
+			// new shard on the current group, and previously not on the current group
 			kv.movingGroupShards[prevShards[i]] = append(kv.movingGroupShards[prevShards[i]], i)
 		} else if newShards[i] != kv.gid && prevShards[i] == kv.gid {
-			deletingShards = append(deletingShards, i)
+			// new shard not on the current group anymore
+			deletedShards = append(deletedShards, i)
 		}
 	}
 
-	deletingDataset := make(map[int]deletingData)
+	deletedDataset := make(map[int]deletingData)
 
-	for i := 0; i < len(deletingShards); i++ {
-		shard := deletingShards[i]
+	for i := 0; i < len(deletedShards); i++ {
+		// delete shard at the current group, and build deletingDateSet
+		shard := deletedShards[i]
 
-		deletingData := deletingData{}
-		deletingData.Kvs = make(map[string]string)
-		deletingData.RequestIdKeys = make(map[int64]string)
+		deletedData := deletingData{}
+		deletedData.Kvs = make(map[string]string)
+		deletedData.RequestIdKeys = make(map[int64]string)
 
 		for key, value := range kv.kvs {
 			if key2shard(key) == shard {
-				deletingData.Kvs[key] = value
+				deletedData.Kvs[key] = value
 				delete(kv.kvs, key)
 			}
 		}
 
 		for key, value := range kv.requestIdKeys {
 			if key2shard(value) == shard {
-				deletingData.RequestIdKeys[key] = value
+				deletedData.RequestIdKeys[key] = value
 				delete(kv.requestIdKeys, key)
 			}
 		}
 
-		deletingDataset[shard] = deletingData
+		deletedDataset[shard] = deletedData
 	}
 
-	kv.deletingConfigNumKvs[prevConfig.Num] = deletingDataset
+	kv.deletedConfigNumKvs[prevConfig.Num] = deletedDataset
 
-	kv.mu.Unlock()
-
-	if kv.getWaitingShardsLength() == 0 {
-		kv.mu.Lock()
+	// no shards needed to be moved from other groups
+	if len(kv.movingGroupShards) == 0 {
 		kv.moving = false
 		kv.lastAppliedIndex = index
 		kv.mu.Unlock()
 		return
 	}
 
-	kv.mu.Lock()
-
+	// try to move shards from other groups
 	for gid, shards := range kv.movingGroupShards {
 		go func(gid int, shards []int, configNum int) {
 			kv.moveShards(gid, shards, configNum)
@@ -510,7 +516,7 @@ func (kv *ShardKV) readSnapshot() {
 	kv.prevConfigs = prevConfigs
 
 	kv.movingGroupShards = movingGroupShards
-	kv.deletingConfigNumKvs = deletingConfigNumKvs
+	kv.deletedConfigNumKvs = deletingConfigNumKvs
 
 	kv.mu.Unlock()
 }
@@ -528,7 +534,7 @@ func (kv *ShardKV) saveSnapshot() {
 		e.Encode(kv.prevConfigs)
 
 		e.Encode(kv.movingGroupShards)
-		e.Encode(kv.deletingConfigNumKvs)
+		e.Encode(kv.deletedConfigNumKvs)
 
 		index := kv.lastAppliedIndex
 		snapshot := w.Bytes()
@@ -594,7 +600,7 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister,
 	kv.config = shardmaster.Config{}
 
 	kv.movingGroupShards = make(map[int][]int)
-	kv.deletingConfigNumKvs = make(map[int]map[int]deletingData)
+	kv.deletedConfigNumKvs = make(map[int]map[int]deletingData)
 
 	kv.cond4movingGroupShards = sync.NewCond(&kv.mu)
 

@@ -253,6 +253,7 @@ func (sm *ShardMaster) join(op *Op) result {
 			newGroups[key] = value
 		}
 
+		// do balance
 		shards := sm.balanceShards(newGroups)
 
 		config := Config{}
@@ -375,11 +376,13 @@ func (sm *ShardMaster) balanceShards(groups map[int][]string) [NShards]int {
 
 	times := NShards / len(gids)
 
+	// re-shard all gids
 	for i := 0; i < len(gids); i++ {
 		for j := 0; j < times; j++ {
 			shards[i*times+j] = gids[i]
 		}
 
+		//balance the rest of shards
 		if i == len(gids)-1 && (i+1)*times < NShards {
 			for j := (i + 1) * times; j < NShards; j++ {
 				shards[j] = gids[i]
