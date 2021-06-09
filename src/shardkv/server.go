@@ -376,6 +376,13 @@ func (kv *ShardKV) processConfig(op *Op, index int) {
 		return
 	}
 
+	_, isLeader := kv.rf.GetState()
+
+	if isLeader {
+		DPrintf("BEFORE MOVE")
+		DPrintf("{%v} KVS %v", kv.gid, kv.kvs)
+	}
+
 	// try to move shards from other groups
 	for gid, shards := range kv.movingGroupShards {
 		go func(gid int, shards []int, configNum int) {
@@ -385,6 +392,11 @@ func (kv *ShardKV) processConfig(op *Op, index int) {
 
 	for len(kv.movingGroupShards) != 0 {
 		kv.cond4movingGroupShards.Wait()
+	}
+
+	if isLeader {
+		DPrintf("{%v} KVS %v", kv.gid, kv.kvs)
+		DPrintf("AFTER MOVE")
 	}
 
 	kv.moving = false

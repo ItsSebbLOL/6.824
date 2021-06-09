@@ -264,6 +264,12 @@ func (sm *ShardMaster) join(op *Op) result {
 		sm.configs = append(sm.configs, config)
 	}
 
+	_, isLeader := sm.rf.GetState()
+
+	if isLeader {
+		DPrintf("CONFIG %v", sm.configs)
+	}
+
 	sm.mu.Unlock()
 
 	return res
@@ -299,6 +305,12 @@ func (sm *ShardMaster) leave(op *Op) result {
 		config.Groups = newGroups
 
 		sm.configs = append(sm.configs, config)
+	}
+
+	_, isLeader := sm.rf.GetState()
+
+	if isLeader {
+		DPrintf("CONFIG %v", sm.configs)
 	}
 
 	sm.mu.Unlock()

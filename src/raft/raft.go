@@ -508,7 +508,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		//	DPrintf("%v", rf.log[i])
 		//}
 
-		DPrintf("[%v] START %v, index %v", rf.me, command, index)
+		//DPrintf("[%v] START %v, index %v", rf.me, command, index)
 
 		// send appendEntries RPC to all peers
 		for i := 0; i < len(rf.peers); i++ {
@@ -753,7 +753,7 @@ func (rf *Raft) apply() {
 			rf.mu.Unlock()
 			// apply msg through apply channel
 			rf.applyCh <- applyMsg
-			DPrintf("[%v] APPLY %v, lastApplied %v", rf.me, applyMsg, i)
+			//DPrintf("[%v] APPLY %v, lastApplied %v", rf.me, applyMsg, i)
 
 			//for i := 0; i < len(rf.log); i++ {
 			//	DPrintf("[%v] %v", rf.me, rf.log[i])

@@ -352,6 +352,8 @@ func make_config(t *testing.T, n int, unreliable bool, maxraftstate int) *config
 	for i := 0; i < cfg.nmasters; i++ {
 		cfg.StartMasterServer(i)
 	}
+	DPrintf("TEST_ACTION START MASTER")
+
 	cfg.mck = cfg.shardclerk()
 
 	cfg.ngroups = 3
@@ -368,6 +370,7 @@ func make_config(t *testing.T, n int, unreliable bool, maxraftstate int) *config
 		for i := 0; i < cfg.n; i++ {
 			cfg.StartServer(gi, i)
 		}
+		DPrintf("TEST_ACTION START GROUP %v", gi)
 	}
 
 	cfg.clerks = make(map[*Clerk][]string)
